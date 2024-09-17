@@ -25,7 +25,7 @@ const headers = createActionHeaders();
 export const GET = async (req: Request) => {
   try {
     const requestUrl = new URL(req.url);
-    const baseHref = new URL(`/api/actions/mint`, requestUrl.origin).toString();
+    const baseHref = new URL(`/api/actions/mint-dev`, requestUrl.origin).toString();
 
     const payload: ActionGetResponse = {
       type: "action",
