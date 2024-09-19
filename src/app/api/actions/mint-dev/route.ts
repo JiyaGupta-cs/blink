@@ -31,7 +31,7 @@ export const GET = async (req: Request) => {
       type: "action",
       title: "Micnft - Mint cNFT",
       icon: new URL("/logo.png", requestUrl.origin).toString(),
-      description: "Mint cNFT",
+      description: "Mint cNFT (devnet)",
       label: "Mint",
       links: {
         actions: [
