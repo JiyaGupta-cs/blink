@@ -1,10 +1,9 @@
 import {
-  ActionPostResponse,
-  createPostResponse,
   ActionGetResponse,
+  ACTIONS_CORS_HEADERS,
   ActionPostRequest,
-  createActionHeaders,
-  ActionError,
+  createPostResponse,
+  ActionPostResponse,
 } from "@solana/actions";
 import {
   clusterApiUrl,
@@ -14,95 +13,99 @@ import {
   SystemProgram,
   Transaction,
 } from "@solana/web3.js";
-
-// Set the donation recipient address here
-const DONATION_ADDRESS: PublicKey = new PublicKey("EHfocbgMwpUnTR9RixBNdFJRUmPiNvMYLHk3F9ikFBjc");
-
-const headers = createActionHeaders();
-
 export const GET = async (req: Request) => {
-  try {
-    const requestUrl = new URL(req.url);
-    const baseHref = new URL(`/api/actions/donate`, requestUrl.origin).toString();
-
-    const payload: ActionGetResponse = {
-      type: "action",
-      title: "Donate SOL",
-      icon: new URL("/donate-icon.png", requestUrl.origin).toString(),
-      description: "Donate SOL to support our project",
-      links: {
-        actions: [
-          {
-            label: "Donate",
-            href: `${baseHref}?amount={amount}`,
-            parameters: [
-              {
-                name: "amount",
-                label: "Enter the amount of SOL to donate",
-                required: true,
-              },
-            ],
-            type: "transaction"
-          },
-        ],
-      },
-    };
-
-    return Response.json(payload, { headers });
-  } catch (err) {
-    console.error(err);
-    let actionError: ActionError = { message: "An unknown error occurred" };
-    if (typeof err == "string") actionError.message = err;
-    return Response.json(actionError, { status: 400, headers });
-  }
+  const payload: ActionGetResponse = {
+    icon: new URL("/img/nick.jpg", new URL(req.url).origin).toString(),
+    label: "Buy me a coffee",
+    description:
+      "Buy me a coffee with SOL using this super sweet blink of mine :)",
+    title: "Nick Frostbutter - Buy Me a Coffee",
+    links: {
+      actions: [
+        {
+          href: "/api/actions/mint?amount=0.1",
+          label: "0.1 SOL",
+        },
+        {
+          href: "/api/actions/mint?amount=0.5",
+          label: "0.5 SOL",
+        },
+        {
+          href: "/api/actions/mint?amount=1.0",
+          label: "1.0 SOL",
+        },
+        {
+          href: "/api/actions/mint?amount={amount}",
+          label: "Send SOL", // button text
+          parameters: [
+            {
+              name: "amount", // name template literal
+              label: "Enter a SOL amount", // placeholder for the input
+            },
+          ],
+        },
+      ],
+    },
+  };
+  return Response.json(payload, {
+    headers: ACTIONS_CORS_HEADERS,
+  });
 };
-
-export const OPTIONS = async () => Response.json(null, { headers });
-
+export const OPTIONS = GET;
 export const POST = async (req: Request) => {
   try {
-    const requestUrl = new URL(req.url);
-    const amount = parseFloat(requestUrl.searchParams.get("amount") || "0");
-    if (isNaN(amount) || amount <= 0) throw "Invalid donation amount";
-
+    const url = new URL(req.url);
     const body: ActionPostRequest = await req.json();
-
-    let donorAccount: PublicKey;
+    let account: PublicKey;
     try {
-      donorAccount = new PublicKey(body.account);
+      account = new PublicKey(body.account);
     } catch (err) {
-      throw 'Invalid donor account provided';
+      throw "Invalid 'account' provided. Its not a real pubkey";
     }
-
-    const connection = new Connection(process.env.SOLANA_RPC! || clusterApiUrl("mainnet-beta"));
-
-    const transferInstruction = SystemProgram.transfer({
-      fromPubkey: donorAccount,
-      toPubkey: DONATION_ADDRESS,
-      lamports: amount * LAMPORTS_PER_SOL,
-    });
-
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-
-    const transaction = new Transaction({
-      feePayer: donorAccount,
-      blockhash,
-      lastValidBlockHeight,
-    }).add(transferInstruction);
-
+    let amount: number = 0.1;
+    if (url.searchParams.has("amount")) {
+      try {
+        amount = parseFloat(url.searchParams.get("amount") || "0.1") || amount;
+      } catch (err) {
+        throw "Invalid 'amount' input";
+      }
+    }
+    const connection = new Connection(clusterApiUrl("devnet"));
+    const TO_PUBKEY = new PublicKey(
+      "9FK3BZiGatVrDwVZoMZsJQW24ETAmmzBAGPnJp9jSdtu",
+    );
+    const transaction = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: account,
+        lamports: amount * LAMPORTS_PER_SOL,
+        toPubkey: TO_PUBKEY,
+      }),
+    );
+    transaction.feePayer = account;
+    transaction.recentBlockhash = (
+      await connection.getLatestBlockhash()
+    ).blockhash;
     const payload: ActionPostResponse = await createPostResponse({
       fields: {
-        type: "transaction",
         transaction,
-        message: `Donate ${amount} SOL to support our project`,
+        message: "Thanks for the coffee fren :)",
       },
     });
-
-    return Response.json(payload, { headers });
+    return Response.json(payload, {
+      headers: ACTIONS_CORS_HEADERS,
+    });
   } catch (err) {
-    console.error(err);
-    let actionError: ActionError = { message: "An unknown error occurred" };
-    if (typeof err == "string") actionError.message = err;
-    return Response.json(actionError, { status: 400, headers });
+    let message = "An unknown error occurred";
+    if (typeof err == "string") message = err;
+    return Response.json(
+      {
+        message,
+      },
+      {
+        headers: ACTIONS_CORS_HEADERS,
+      },
+    );
   }
 };
+
+// https://dial.to/devnet?action=solana-action:http://localhost:3000/api/actions/mint
