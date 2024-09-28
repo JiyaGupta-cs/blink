@@ -14,7 +14,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Micnft",
+  title: "Donate SOL",
   description: "Blink to mint cNFTs.",
 };
 
