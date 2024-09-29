@@ -4,6 +4,7 @@ import {
   ActionPostRequest,
   createPostResponse,
   ActionPostResponse,
+  NextAction
 } from "@solana/actions";
 import {
   clusterApiUrl,
@@ -13,6 +14,7 @@ import {
   SystemProgram,
   Transaction,
 } from "@solana/web3.js";
+import { NextResponse } from "next/server";
 
 // Game state
 let gameState = {
@@ -43,71 +45,85 @@ function calculateWinner(squares: (string | null)[]) {
 }
 
 function getBoardImageUrl(url: URL, board: (string | null)[]) {
-  // Generate a unique identifier for the current board state
   const boardState = board.map(cell => cell || '-').join('');
   return new URL(`/img/tictactoe-${boardState}.png`, url.origin).toString();
 }
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const gameStarted = gameState.player !== "";
+  try {
+    const url = new URL(req.url);
+    let payload: ActionGetResponse;
 
-  let payload: ActionGetResponse;
+    if (!gameState.player) {
+      // Name entry screen
+      payload = {
+        icon: new URL("/img/tictactoe-entry.png", url.origin).toString(),
+        label: "Enter Your Name",
+        description: "Enter your name to start playing Tic-Tac-Toe on Solana",
+        title: "Solana Tic-Tac-Toe - Player Entry",
+        links: {
+          actions: [
+            {
+              type: "post",
+              href: "/api/actions/mint?action=setName",
+              label: "Start Game",
+              parameters: [
+                {
+                  name: "name",
+                  label: "Your Name",
+                },
+              ],
+            },
+          ],
+        },
+      };
+    } else {
+      // Game board screen
+      payload = {
+        icon: getBoardImageUrl(url, gameState.board),
+        label: gameState.winner 
+          ? `Game Over - ${gameState.winner} wins!` 
+          : `Tic-Tac-Toe - ${gameState.xIsNext ? 'X' : 'O'}'s turn`,
+        description: gameState.winner 
+          ? "Game has ended. Start a new game?" 
+          : `It's ${gameState.xIsNext ? "X" : "O"}'s turn to move`,
+        title: `Solana Tic-Tac-Toe - ${gameState.player}'s Game`,
+        links: {
+          actions: gameState.winner
+            ? [
+                {
+                  type: "post",
+                  href: "/api/actions/mint?action=reset",
+                  label: "New Game",
+                },
+              ]
+            : gameState.board.map((value, index) => ({
+                type: "post",
+                href: `/api/actions/mint?action=move&position=${index}`,
+                label: `${value || (index + 1)}`,
+                disabled: value !== null,
+              })),
+        },
+      };
+    }
 
-  if (!gameStarted) {
-    // Initial screen for name entry
-    payload = {
-      icon: new URL("/img/tictactoe-entry.png", url.origin).toString(),
-      label: "Enter Your Name",
-      description: "Enter your name to start playing Tic-Tac-Toe on Solana",
-      title: "Solana Tic-Tac-Toe - Player Entry",
-      links: {
-        actions: [
-          {
-            href: "/api/actions/mint?action=setName",
-            label: `Start Game ${gameStarted}`,
-            parameters: [
-              {
-                name: "name",
-                label: "Your Name",
-              },
-            ],
-          },
-        ],
-      },
-    };
-  } else {
-    // Game board screen
-    payload = {
-      icon: getBoardImageUrl(url, gameState.board),
-      label: gameState.winner 
-        ? `Game Over - ${gameState.winner} wins!` 
-        : `Tic-Tac-Toe - ${gameState.xIsNext ? 'X' : 'O'}'s turn`,
-      description: gameState.winner 
-        ? "Game has ended. Start a new game?" 
-        : `It's ${gameState.xIsNext ? "X" : "O"}'s turn to move`,
-      title: `Solana Tic-Tac-Toe - ${gameState.player}'s Game`,
-      links: {
-        actions: gameState.winner
-          ? [
-              {
-                href: "/api/actions/mint?action=reset",
-                label: "New Game",
-              },
-            ]
-          : gameState.board.map((value, index) => ({
-              href: `/api/actions/mint?action=move&position=${index}`,
-              label: `${value || (index + 1)}`,
-              disabled: value !== null,
-            })),
-      },
-    };
+    return NextResponse.json(payload, {
+      headers: ACTIONS_CORS_HEADERS,
+    });
+    
+  } catch (err) {
+    console.error(err);
+    let message = "An unknown error occurred";
+    if (typeof err === "string") message = err;
+
+    return new Response(message, {
+      status: 400,
+      headers: ACTIONS_CORS_HEADERS,
+    });
   }
-
-  return Response.json(payload, {
-    headers: ACTIONS_CORS_HEADERS,
-  });
 }
+
+export const OPTIONS = GET;
 
 export async function POST(req: Request) {
   try {
@@ -123,13 +139,12 @@ export async function POST(req: Request) {
     const action = url.searchParams.get("action");
     
     if (action === "setName") {
-      const name = body.fields?.name;
+      const name = body.data?.name;
       if (!name) throw "Name is required";
       gameState.player = name;
       gameState.board = Array(9).fill(null);
       gameState.xIsNext = true;
       gameState.winner = null;
-      
     } else if (action === "move") {
       if (gameState.winner) throw "Game is already over";
       const position = url.searchParams.get("position");
@@ -161,7 +176,7 @@ export async function POST(req: Request) {
     const transaction = new Transaction().add(
       SystemProgram.transfer({
         fromPubkey: account,
-        lamports: 0.01 * LAMPORTS_PER_SOL, // Small amount for demo
+        lamports: 0.001 * LAMPORTS_PER_SOL,
         toPubkey: TO_PUBKEY,
       })
     );
@@ -170,6 +185,11 @@ export async function POST(req: Request) {
       await connection.getLatestBlockhash()
     ).blockhash;
     
+    const nextAction: NextAction = {
+      type: "get",
+      href: "/api/actions/mint",
+    };
+
     const payload: ActionPostResponse = await createPostResponse({
       fields: {
         transaction,
@@ -179,26 +199,25 @@ export async function POST(req: Request) {
           ? `Move made at position ${url.searchParams.get("position")}`
           : "New game started",
       },
+      links: {
+        next: {
+          type: "inline",
+          action: nextAction
+        }
+      }
     });
-    return Response.json(payload, {
+
+    return new NextResponse(JSON.stringify(payload), {
       headers: ACTIONS_CORS_HEADERS,
     });
+    
   } catch (err) {
+    console.log(err);
     let message = "An unknown error occurred";
     if (typeof err == "string") message = err;
-    return Response.json(
-      {
-        message,
-      },
-      {
-        headers: ACTIONS_CORS_HEADERS,
-      }
-    );
+    return new Response(message, {
+      status: 400,
+      headers: ACTIONS_CORS_HEADERS,
+    });
   }
-}
-
-export async function OPTIONS(req: Request) {
-  return new Response(null, {
-    headers: ACTIONS_CORS_HEADERS,
-  });
 }
